@@ -33,31 +33,84 @@ import tkinter.messagebox
 import base64
 import json
 import re
+import logging
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import paho.mqtt.client as mqtt
 
 from models import Node
 
+
+class CustomFormatter(logging.Formatter):
+    grey = '\x1b[38;21m'
+    white = '\x1b[38;5;231m'
+    blue = '\x1b[38;5;39m'
+    yellow = '\x1b[38;5;226m'
+    red = '\x1b[38;5;196m'
+    green = '\x1b[38;5;46m'
+    purple = '\x1b[38;5;129m'
+    bold_red = '\x1b[31;1m'
+    bold_white = '\x1b[37;1m'
+    reset = '\x1b[0m'
+
+    def __init__(self, fmt):
+        super().__init__()
+        self.fmt = fmt
+        self.FORMATS = {
+            logging.DEBUG: self.blue + self.fmt + self.reset,
+            logging.INFO: self.white + self.fmt + self.reset,
+            logging.WARNING: self.yellow + self.fmt + self.reset,
+            logging.ERROR: self.red + self.fmt + self.reset,
+            logging.CRITICAL: self.bold_red + self.fmt + self.reset
+        }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+class plainFormatter(logging.Formatter):
+    ansi_escape = re.compile(r'\x1b\[([0-9]+)(;[0-9]+)*m')
+
+    def format(self, record):
+        message = super().format(record)
+        return self.ansi_escape.sub('', message)
+
+
+logger = logging.getLogger("mqtt-connect")
+logger.setLevel(logging.DEBUG)
+logger.propagate = False
+logFormat = '%(asctime)s | %(levelname)8s | %(message)s'
+# Create stdout handler for logging to the console
+stdout_handler = logging.StreamHandler()
+stdout_handler.setLevel(logging.DEBUG)
+stdout_handler.setFormatter(CustomFormatter(logFormat))
+# Add handlers to the logger
+logger.addHandler(stdout_handler)
+file_handler = logging.FileHandler('logs/messages.log', encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter(logFormat))
+logger.addHandler(file_handler)
+
 #################################
 ### Debug Options
-debug: bool = False
-auto_reconnect: bool = False
-auto_reconnect_delay: float = 1 # seconds
-print_service_envelope: bool = False
-print_message_packet: bool = False
-print_text_message: bool = False
-print_node_info: bool =  False
-print_telemetry: bool = False
-print_failed_encryption_packet: bool = False
-print_position_report: bool = False
-color_text: bool = False
+debug: bool = True
+auto_reconnect: bool = True
+auto_reconnect_delay: float = 5 # seconds
+logger.info_service_envelope: bool = False
+logger.info_message_packet: bool = False
+logger.info_text_message: bool = True
+logger.info_node_info: bool =  True
+logger.info_telemetry: bool = True
+logger.info_failed_encryption_packet: bool = True
+logger.info_position_report: bool = True
+color_text: bool = True
 display_encrypted_emoji: bool = True
 display_dm_emoji: bool = True
-display_lookup_button: bool = False
+display_lookup_button: bool = True
 display_private_dms: bool = False
 
-record_locations: bool = False
+record_locations: bool = True
 
 #################################
 ### Default settings
@@ -79,7 +132,7 @@ lat = ""
 lon = ""
 alt = ""
 client_hw_model = 255
-node_info_interval_minutes = 15
+node_info_interval_minutes = 120
 
 #################################
 ### Program variables
@@ -119,7 +172,7 @@ def set_topic():
     """?"""
 
     if debug:
-        print("set_topic")
+        logger.info("set_topic")
     global subscribe_topic, publish_topic, node_number, node_name
     node_name = '!' + hex(node_number)[2:]
     subscribe_topic = root_topic + channel + "/#"
@@ -192,18 +245,18 @@ def get_name_by_id(name_type: str, user_id: str) -> str:
 
             if result:
                 if debug:
-                    print("found user in db: " + str(hex_user_id))
+                    logger.info("found user in db: " + str(hex_user_id))
                 return result[0]
             # If we don't find a user id in the db, ask for an id
             else:
                 if user_id != BROADCAST_NUM:
                     if debug:
-                        print("didn't find user in db: " + str(hex_user_id))
+                        logger.info("didn't find user in db: " + str(hex_user_id))
                     send_node_info(user_id, want_response=True)  # DM unknown user a nodeinfo with want_response
                 return f"Unknown User ({hex_user_id})"
 
     except sqlite3.Error as e:
-        print(f"SQLite error in get_name_by_id: {e}")
+        logger.info(f"SQLite error in get_name_by_id: {e}")
 
     finally:
         db_connection.close()
@@ -272,7 +325,7 @@ def save_preset():
     """Save preset values to disk."""
 
     if debug:
-        print("save_preset")
+        logger.info("save_preset")
     name = tkinter.simpledialog.askstring("Save Preset", "Enter preset name:")
         # Check if the user clicked Cancel
     if name is None:
@@ -290,13 +343,13 @@ def load_preset():
     """Function to load the selected preset."""
 
     if debug:
-        print("load_preset")
+        logger.info("load_preset")
     selected_preset_name = preset_var.get()
 
     if selected_preset_name in presets:
         selected_preset = presets[selected_preset_name]
         if debug:
-            print(f"Loading preset: {selected_preset_name}")
+            logger.info(f"Loading preset: {selected_preset_name}")
 
         mqtt_broker_entry.delete(0, tk.END)
         mqtt_broker_entry.insert(0, selected_preset.broker)
@@ -324,7 +377,7 @@ def load_preset():
         alt_entry.delete(0, tk.END)
         alt_entry.insert(0, selected_preset.alt)
     else:
-        print(f"Error: Preset '{selected_preset_name}' not found.")
+        logger.info(f"Error: Preset '{selected_preset_name}' not found.")
 
 
 def update_preset_dropdown():
@@ -342,13 +395,13 @@ def preset_var_changed(*args):
 
     selected_option = preset_var.get()
     update_preset_dropdown()
-    print(f"Selected Option: {selected_option}")
+    logger.info(f"Selected Option: {selected_option}")
 
 
 def save_presets_to_file():
     """?"""
     if debug:
-        print("save_presets_to_file")
+        logger.info("save_presets_to_file")
     with open(presets_file_path, "w") as file:
         json.dump({name: preset.__dict__ for name, preset in presets.items()}, file, indent=2)
 
@@ -357,7 +410,7 @@ def load_presets_from_file():
     """Load presets from a file."""
 
     if debug:
-        print("load_presets_from_file")
+        logger.info("load_presets_from_file")
     try:
         with open(presets_file_path, "r") as file:
             loaded_presets = json.load(file)
@@ -373,54 +426,54 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
     """Callback function that accepts a meshtastic message from mqtt."""
 
     # if debug:
-    #     print("on_message")
+    #     logger.info("on_message")
     se = mqtt_pb2.ServiceEnvelope()
     is_encrypted: bool = False
     try:
         se.ParseFromString(msg.payload)
-        if print_service_envelope:
-            print ("")
-            print ("Service Envelope:")
-            print (se)
+        if logger.info_service_envelope:
+            logger.info ("")
+            logger.info ("Service Envelope:")
+            logger.info (se)
         mp = se.packet
 
     except Exception as e:
-        print(f"*** ServiceEnvelope: {str(e)}")
+        logger.info(f"*** ServiceEnvelope: {str(e)}")
         return
 
     if len(msg.payload) > max_msg_len:
         if debug:
-            print('Message too long: ' + str(len(msg.payload)) + ' bytes long, skipping.')
+            logger.info('Message too long: ' + str(len(msg.payload)) + ' bytes long, skipping.')
         return
 
     if mp.HasField("encrypted") and not mp.HasField("decoded"):
         decode_encrypted(mp)
         is_encrypted=True
     
-    if print_message_packet:
-        print ("")
-        print ("Message Packet:")
-        print(mp)
+    if logger.info_message_packet:
+        logger.info ("")
+        logger.info ("Message Packet:")
+        logger.info(mp)
 
     if mp.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP:
         try:
             text_payload = mp.decoded.payload.decode("utf-8")
             process_message(mp, text_payload, is_encrypted)
-            # print(f"{text_payload}")
+            # logger.info(f"{text_payload}")
         except Exception as e:
-            print(f"*** TEXT_MESSAGE_APP: {str(e)}")
+            logger.info(f"*** TEXT_MESSAGE_APP: {str(e)}")
 
     elif mp.decoded.portnum == portnums_pb2.NODEINFO_APP:
         info = mesh_pb2.User()
         try:
             info.ParseFromString(mp.decoded.payload)
             maybe_store_nodeinfo_in_db(info)
-            if print_node_info:
-                print("")
-                print("NodeInfo:")
-                print(info)
+            if logger.info_node_info:
+                logger.info("")
+                logger.info("NodeInfo:")
+                logger.info(info)
         except Exception as e:
-            print(f"*** NODEINFO_APP: {str(e)}")
+            logger.info(f"*** NODEINFO_APP: {str(e)}")
 
     elif mp.decoded.portnum == portnums_pb2.POSITION_APP:
         pos = mesh_pb2.Position()
@@ -429,14 +482,14 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
             if record_locations:
                 maybe_store_position_in_db(getattr(mp, "from"), pos, getattr(mp, "rx_rssi"))
         except Exception as e:
-            print(f"*** POSITION_APP: {str(e)}")
+            logger.info(f"*** POSITION_APP: {str(e)}")
 
     elif mp.decoded.portnum == portnums_pb2.TELEMETRY_APP:
         env = telemetry_pb2.Telemetry()
         try:
             env.ParseFromString(mp.decoded.payload)
         except Exception as e:
-            print(f"*** TELEMETRY_APP: {str(e)}")
+            logger.info(f"*** TELEMETRY_APP: {str(e)}")
 
         rssi = getattr(mp, "rx_rssi")
 
@@ -465,7 +518,7 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
         # Air Quality Metrics
             # TODO
 
-        if print_telemetry:
+        if logger.info_telemetry:
 
             device_metrics_string = "From: " + get_name_by_id("short", getattr(mp, "from")) + ", "
             environment_metrics_string = "From: " + get_name_by_id("short", getattr(mp, "from")) + ", "
@@ -489,11 +542,11 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
             device_metrics_string = device_metrics_string.rstrip(", ")
             environment_metrics_string = environment_metrics_string.rstrip(", ")
 
-            # Print or use the final string
+            # logger.info or use the final string
             if has_device_metrics:
-                print(device_metrics_string)
+                logger.info(device_metrics_string)
             if has_environment_metrics:
-                print(environment_metrics_string)
+                logger.info(environment_metrics_string)
 
     elif mp.decoded.portnum == portnums_pb2.TRACEROUTE_APP:
         if mp.decoded.payload:
@@ -528,9 +581,9 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
                     update_gui(message, tag="info")
 
             except AttributeError as e:
-                print(f"Error accessing route: {e}")
+                logger.info(f"Error accessing route: {e}")
             except Exception as ex:
-                print(f"Unexpected error: {ex}")
+                logger.info(f"Unexpected error: {ex}")
 
 
 
@@ -556,17 +609,17 @@ def decode_encrypted(mp):
         mp.decoded.CopyFrom(data)
 
     except Exception as e:
-        if print_message_packet:
-            print(f"failed to decrypt: \n{mp}")
+        if logger.info_message_packet:
+            logger.info(f"failed to decrypt: \n{mp}")
         if debug:
-            print(f"*** Decryption failed: {str(e)}")
+            logger.info(f"*** Decryption failed: {str(e)}")
 
 
 def process_message(mp, text_payload, is_encrypted):
     """Process a single meshtastic text message."""
 
     if debug:
-        print("process_message")
+        logger.info("process_message")
     if not message_exists(mp):
         from_node = getattr(mp, "from")
         to_node = getattr(mp, "to")
@@ -597,7 +650,7 @@ def process_message(mp, text_payload, is_encrypted):
                     display_str = display_str[:9] + dm_emoji + display_str[9:]
             else:
                 if debug:
-                    print("Private DM Ignored")
+                    logger.info("Private DM Ignored")
                 private_dm = True
 
         else:
@@ -623,19 +676,19 @@ def process_message(mp, text_payload, is_encrypted):
         rssi = getattr(mp, "rx_rssi")
         if rssi:
             text["RSSI"] = rssi
-        if print_text_message:
-            print("")
-            print(text)
+        if logger.info_text_message:
+            logger.info("")
+            logger.info(text)
     else:
         if debug:
-            print("duplicate message ignored")
+            logger.info("duplicate message ignored")
 
 
 def message_exists(mp) -> bool:
     """Check for message id in db, ignore duplicates."""
 
     if debug:
-        print("message_exists")
+        logger.info("message_exists")
     try:
         table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
@@ -648,7 +701,7 @@ def message_exists(mp) -> bool:
             return existing_record is not None
 
     except sqlite3.Error as e:
-        print(f"SQLite error in message_exists: {e}")
+        logger.info(f"SQLite error in message_exists: {e}")
 
     finally:
         db_connection.close()
@@ -663,20 +716,20 @@ def direct_message(destination_id):
     """Send a direct message."""
 
     if debug:
-        print("direct_message")
+        logger.info("direct_message")
     if destination_id:
         try:
             destination_id = int(destination_id[1:], 16)
             publish_message(destination_id)
         except Exception as e:
             if debug:
-                print(f"Error converting destination_id: {e}")
+                logger.info(f"Error converting destination_id: {e}")
 
 def publish_message(destination_id):
     """?"""
 
     if debug:
-        print("publish_message")
+        logger.info("publish_message")
 
     if not client.is_connected():
         connect_mqtt()
@@ -696,7 +749,7 @@ def send_traceroute(destination_id):
     """Send traceroute request to destination_id."""
 
     if debug:
-        print("send_TraceRoute")
+        logger.info("send_TraceRoute")
 
     if not client.is_connected():
         message =  format_time(current_time()) + " >>> Connect to a broker before sending traceroute"
@@ -706,7 +759,7 @@ def send_traceroute(destination_id):
         update_gui(message, tag="info")
 
         if debug:
-            print(f"Sending Traceroute Packet to {str(destination_id)}")
+            logger.info(f"Sending Traceroute Packet to {str(destination_id)}")
 
         encoded_message = mesh_pb2.Data()
         encoded_message.portnum = portnums_pb2.TRACEROUTE_APP
@@ -721,7 +774,7 @@ def send_node_info(destination_id, want_response):
     global node_number
 
     if debug:
-        print("send_node_info")
+        logger.info("send_node_info")
 
     if not client.is_connected():
         message =  format_time(current_time()) + " >>> Connect to a broker before sending nodeinfo"
@@ -731,11 +784,12 @@ def send_node_info(destination_id, want_response):
             return
         
         if destination_id == BROADCAST_NUM:
-            message =  format_time(current_time()) + " >>> Broadcast NodeInfo Packet"
-            update_gui(message, tag="info")
+            #message =  format_time(current_time()) + " >>> Broadcast NodeInfo Packet"
+            #update_gui(message, tag="info")
+            pass
         else:
             if debug:
-                print(f"Sending NodeInfo Packet to {str(destination_id)}")
+                logger.info(f"Sending NodeInfo Packet to {str(destination_id)}")
 
         node_number = int(node_number_entry.get())
 
@@ -757,7 +811,7 @@ def send_node_info(destination_id, want_response):
         encoded_message.payload = user_payload
         encoded_message.want_response = want_response  # Request NodeInfo back
 
-        # print(encoded_message)
+        # logger.info(encoded_message)
         generate_mesh_packet(destination_id, encoded_message)
 
 
@@ -767,18 +821,19 @@ def send_position(destination_id) -> None:
     global node_number
 
     if debug:
-        print("send_Position")
+        logger.info("send_Position")
 
     if not client.is_connected():
         message =  format_time(current_time()) + " >>> Connect to a broker before sending position"
         update_gui(message, tag="info")
     else:
         if destination_id == BROADCAST_NUM:
-            message =  format_time(current_time()) + " >>> Broadcast Position Packet"
-            update_gui(message, tag="info")
+            # message =  format_time(current_time()) + " >>> Broadcast Position Packet"
+            # update_gui(message, tag="info")
+            pass
         else:
             if debug:
-                print(f"Sending Position Packet to {str(destination_id)}")
+                logger.info(f"Sending Position Packet to {str(destination_id)}")
 
         node_number = int(node_number_entry.get())
         pos_time = int(time.time())
@@ -843,28 +898,28 @@ def generate_mesh_packet(destination_id, encoded_message):
     if key == "":
         mesh_packet.decoded.CopyFrom(encoded_message)
         if debug:
-            print("key is none")
+            logger.info("key is none")
     else:
         mesh_packet.encrypted = encrypt_message(channel, key, mesh_packet, encoded_message)
         if debug:
-            print("key present")
+            logger.info("key present")
 
     service_envelope = mqtt_pb2.ServiceEnvelope()
     service_envelope.packet.CopyFrom(mesh_packet)
     service_envelope.channel_id = channel
     service_envelope.gateway_id = node_name
-    # print (service_envelope)
+    # logger.info (service_envelope)
 
     payload = service_envelope.SerializeToString()
     set_topic()
-    # print(payload)
+    # logger.info(payload)
     client.publish(publish_topic, payload)
 
 
 def encrypt_message(channel, key, mesh_packet, encoded_message):
     """Encrypt a message."""
     if debug:
-        print("encrypt_message")
+        logger.info("encrypt_message")
 
     if key == "AQ==":
         key = "1PG7OiApB1nwvP+rz05pAQ=="
@@ -872,7 +927,7 @@ def encrypt_message(channel, key, mesh_packet, encoded_message):
     mesh_packet.channel = generate_hash(channel, key)
     key_bytes = base64.b64decode(key.encode('ascii'))
 
-    # print (f"id = {mesh_packet.id}")
+    # logger.info (f"id = {mesh_packet.id}")
     nonce_packet_id = mesh_packet.id.to_bytes(8, "little")
     nonce_from_node = node_number.to_bytes(8, "little")
     # Put both parts into a single byte array.
@@ -888,7 +943,7 @@ def encrypt_message(channel, key, mesh_packet, encoded_message):
 def send_ack(destination_id, message_id):
     "Return a meshtastic acknowledgement."""
     if debug:
-        print("Sending ACK")
+        logger.info("Sending ACK")
 
     encoded_message = mesh_pb2.Data()
     encoded_message.portnum = portnums_pb2.ROUTING_APP
@@ -905,7 +960,7 @@ def send_ack(destination_id, message_id):
 def setup_db():
     """Create the initial database and the nodeinfo, messages, and positions tables in it."""
     if debug:
-        print("setup_db")
+        logger.info("setup_db")
 
     with sqlite3.connect(db_file_path) as db_connection:
         db_cursor = db_connection.cursor()
@@ -933,7 +988,7 @@ def maybe_store_nodeinfo_in_db(info):
     """Save nodeinfo in sqlite unless that record is already there."""
 
     if debug:
-        print("node info packet received: Checking for existing entry in DB")
+        logger.info("node info packet received: Checking for existing entry in DB")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_nodeinfo"
 
@@ -946,7 +1001,7 @@ def maybe_store_nodeinfo_in_db(info):
 
             if existing_record is None:
                 if debug:
-                    print("no record found, adding node to db")
+                    logger.info("no record found, adding node to db")
                 # No existing record, insert the new record
                 db_cursor.execute(f'''
                     INSERT INTO {table_name} (user_id, long_name, short_name)
@@ -965,7 +1020,7 @@ def maybe_store_nodeinfo_in_db(info):
                 # Check if long_name or short_name is different, update if necessary
                 if existing_record[1] != info.long_name or existing_record[2] != info.short_name:
                     if debug:
-                        print("updating existing record in db")
+                        logger.info("updating existing record in db")
                     db_cursor.execute(f'''
                         UPDATE {table_name}
                         SET long_name=?, short_name=?
@@ -982,7 +1037,7 @@ def maybe_store_nodeinfo_in_db(info):
                     update_gui(message, text_widget=nodeinfo_window)
 
     except sqlite3.Error as e:
-        print(f"SQLite error in maybe_store_nodeinfo_in_db: {e}")
+        logger.info(f"SQLite error in maybe_store_nodeinfo_in_db: {e}")
 
     finally:
         db_connection.close()
@@ -995,8 +1050,8 @@ def maybe_store_position_in_db(node_id, position, rssi=None):
     if position.latitude_i != 0 and position.longitude_i != 0:
 
         rssi_string = ", RSSI: " + str(rssi) if rssi else ""
-        if print_position_report:
-            print("From: " + get_name_by_id("short", node_id) +
+        if logger.info_position_report:
+            logger.info("From: " + get_name_by_id("short", node_id) +
                 ", lat: " + str(round(position.latitude_i * 1e-7, 7)) +
                 ", lon: " + str(round(position.longitude_i * 1e-7, 7)) +
                 ", alt: " + str(position.altitude) +
@@ -1048,10 +1103,10 @@ def maybe_store_position_in_db(node_id, position, rssi=None):
                     db_connection.commit()
                 else:
                     if debug:
-                        print("Rejecting old position record")
+                        logger.info("Rejecting old position record")
 
         except sqlite3.Error as e:
-            print(f"SQLite error in maybe_store_position_in_db: {e}")
+            logger.info(f"SQLite error in maybe_store_position_in_db: {e}")
 
         finally:
             db_connection.close()
@@ -1061,7 +1116,7 @@ def insert_message_to_db(time, sender_short_name, text_payload, message_id, is_e
     """Save a meshtastic message to sqlite storage."""
 
     if debug:
-        print("insert_message_to_db")
+        logger.info("insert_message_to_db")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
@@ -1076,7 +1131,7 @@ def insert_message_to_db(time, sender_short_name, text_payload, message_id, is_e
             db_connection.commit()
 
     except sqlite3.Error as e:
-        print(f"SQLite error in insert_message_to_db: {e}")
+        logger.info(f"SQLite error in insert_message_to_db: {e}")
 
     finally:
         db_connection.close()
@@ -1086,7 +1141,7 @@ def load_message_history_from_db():
     """Load previously stored messages from sqlite and display them."""
 
     if debug:
-        print("load_message_history_from_db")
+        logger.info("load_message_history_from_db")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
@@ -1112,7 +1167,7 @@ def load_message_history_from_db():
             message_history.config(state=tk.DISABLED)
 
     except sqlite3.Error as e:
-        print(f"SQLite error in load_message_history_from_db: {e}")
+        logger.info(f"SQLite error in load_message_history_from_db: {e}")
 
     finally:
         db_connection.close()
@@ -1122,7 +1177,7 @@ def erase_nodedb():
     """Erase all stored nodeinfo in sqlite and on display in the gui."""
 
     if debug:
-        print("erase_nodedb")
+        logger.info("erase_nodedb")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_nodeinfo"
 
@@ -1138,7 +1193,7 @@ def erase_nodedb():
                 db_connection.commit()
 
         except sqlite3.Error as e:
-            print(f"SQLite error in erase_nodedb: {e}")
+            logger.info(f"SQLite error in erase_nodedb: {e}")
 
         finally:
             db_connection.close()
@@ -1157,7 +1212,7 @@ def erase_messagedb():
     """Erase all stored messages in sqlite and on display in the gui."""
 
     if debug:
-        print("erase_messagedb")
+        logger.info("erase_messagedb")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
@@ -1173,7 +1228,7 @@ def erase_messagedb():
                 db_connection.commit()
 
         except sqlite3.Error as e:
-            print(f"SQLite error in erase_messagedb: {e}")
+            logger.info(f"SQLite error in erase_messagedb: {e}")
 
         finally:
             db_connection.close()
@@ -1197,7 +1252,7 @@ def connect_mqtt():
         connect_mqtt.tls_configured = False
 
     if debug:
-        print("connect_mqtt")
+        logger.info("connect_mqtt")
     global mqtt_broker, mqtt_port, mqtt_username, mqtt_password, root_topic, channel, node_number, db_file_path, key
     if not client.is_connected():
         try:
@@ -1215,7 +1270,7 @@ def connect_mqtt():
 
             if key == "AQ==":
                 if debug:
-                    print("key is default, expanding to AES128")
+                    logger.info("key is default, expanding to AES128")
                 key = "1PG7OiApB1nwvP+rz05pAQ=="
 
             if not move_text_up(): # copy ID to Number and test for 8 bit hex
@@ -1228,7 +1283,7 @@ def connect_mqtt():
             key = replaced_key
 
             if debug:
-                print (f"padded & replaced key = {key}")
+                logger.info (f"padded & replaced key = {key}")
 
             setup_db()
 
@@ -1245,12 +1300,12 @@ def connect_mqtt():
 
         update_node_list()
     elif client.is_connected() and channel_entry.get() is not channel:
-        print("Channel has changed, disconnect and reconnect")
+        logger.info("Channel has changed, disconnect and reconnect")
         if auto_reconnect:
-            print("auto_reconnect disconnecting from MQTT broker")
+            logger.info("auto_reconnect disconnecting from MQTT broker")
             disconnect_mqtt()
             time.sleep(auto_reconnect_delay)
-            print("auto_reconnect connecting to MQTT broker")
+            logger.info("auto_reconnect connecting to MQTT broker")
             connect_mqtt()
 
     else:
@@ -1261,7 +1316,7 @@ def disconnect_mqtt():
     """Disconnect from the MQTT server."""
 
     if debug:
-        print("disconnect_mqtt")
+        logger.info("disconnect_mqtt")
     if client.is_connected():
         client.disconnect()
         update_gui(f"{format_time(current_time())} >>> Disconnected from MQTT broker", tag="info")
@@ -1279,14 +1334,14 @@ def on_connect(client, userdata, flags, reason_code, properties):		# pylint: dis
     set_topic()
 
     if debug:
-        print("on_connect")
+        logger.info("on_connect")
         if client.is_connected():
-            print("client is connected")
+            logger.info("client is connected")
 
     if reason_code == 0:
         load_message_history_from_db()
         if debug:
-            print(f"Subscribe Topic is: {subscribe_topic}")
+            logger.info(f"Subscribe Topic is: {subscribe_topic}")
         client.subscribe(subscribe_topic)
         message = f"{format_time(current_time())} >>> Connected to {mqtt_broker} on topic {channel} as {'!' + hex(node_number)[2:]}"
         update_gui(message, tag="info")
@@ -1304,12 +1359,12 @@ def on_disconnect(client, userdata, flags, reason_code, properties):		# pylint: 
     """?"""
 
     if debug:
-        print("on_disconnect")
+        logger.info("on_disconnect")
     if reason_code != 0:
         message = f"{format_time(current_time())} >>> Disconnected from MQTT broker with result code {str(reason_code)}"
         update_gui(message, tag="info")
         if auto_reconnect is True:
-            print("attempting to reconnect in " + str(auto_reconnect_delay) + " second(s)")
+            logger.info("attempting to reconnect in " + str(auto_reconnect_delay) + " second(s)")
             time.sleep(auto_reconnect_delay)
             connect_mqtt()
 
@@ -1341,7 +1396,7 @@ def update_node_list():
             nodeinfo_window.config(state=tk.DISABLED)
 
     except sqlite3.Error as e:
-        print(f"SQLite error in update_node_list: {e}")
+        logger.info(f"SQLite error in update_node_list: {e}")
 
     finally:
         db_connection.close()
@@ -1352,7 +1407,7 @@ def update_gui(text_payload, tag=None, text_widget=None):
 
     text_widget = text_widget or message_history
     if debug:
-        print(f"updating GUI with: {text_payload}")
+        logger.info(f"updating GUI with: {text_payload}")
     text_widget.config(state=tk.NORMAL)
     text_widget.insert(tk.END, f"{text_payload}\n", tag)
     text_widget.config(state=tk.DISABLED)
@@ -1373,7 +1428,7 @@ def on_nodeinfo_click(event):							# pylint: disable=unused-argument
     """?"""
 
     if debug:
-        print("on_nodeinfo_click")
+        logger.info("on_nodeinfo_click")
 
     # Get the index of the clicked position
     index = nodeinfo_window.index(tk.CURRENT)
@@ -1392,7 +1447,7 @@ def move_text_up():
 
     text = node_id_entry.get()
     if not is_valid_hex(text, 8, 8):
-        print ("Not valid Hex")
+        logger.info ("Not valid Hex")
         messagebox.showwarning("Warning", "Not a valid Hex ID")
         return False
     else:
@@ -1409,7 +1464,7 @@ def move_text_down():
     text = '!{}'.format(hex(int(text))[2:])
 
     if not is_valid_hex(text, 8, 8):
-        print ("Not valid Hex")
+        logger.info ("Not valid Hex")
         messagebox.showwarning("Warning", "Not a valid Hex ID")
         return False
     else:
@@ -1421,11 +1476,11 @@ def move_text_down():
 def mqtt_thread():
     """Function to run the MQTT client loop in a separate thread."""
     if debug:
-        print("MQTT Thread")
+        logger.info("MQTT Thread")
         if client.is_connected():
-            print("client connected")
+            logger.info("client connected")
         else:
-            print("client not connected")
+            logger.info("client not connected")
     while True:
         client.loop()
 
@@ -1446,7 +1501,7 @@ def on_exit():
     """Function to be called when the GUI is closed."""
     if client.is_connected():
         client.disconnect()
-        print("client disconnected")
+        logger.info("client disconnected")
     root.destroy()
     client.loop_stop()
 
@@ -1456,16 +1511,16 @@ def on_exit():
 ### tcl upstream bug warning
 tcl = tk.Tcl()
 if sys.platform.startswith('darwin'):
-    print(f"\n\n**** IF MAC OS SONOMA **** you are using tcl version: {tcl.call('info', 'patchlevel')}")
-    print("If < version 8.6.13, mouse clicks will only be recognized when the mouse is moving")
-    print("unless the window is moved from it's original position.")
-    print("The built in window auto-centering code may help with this\n\n")
+    logger.info(f"\n\n**** IF MAC OS SONOMA **** you are using tcl version: {tcl.call('info', 'patchlevel')}")
+    logger.info("If < version 8.6.13, mouse clicks will only be recognized when the mouse is moving")
+    logger.info("unless the window is moved from it's original position.")
+    logger.info("The built in window auto-centering code may help with this\n\n")
 
 # Generate 4 random hexadecimal characters to create a unique node name
 random_hex_chars = ''.join(random.choices('0123456789abcdef', k=4))
 node_name = '!abcd' + random_hex_chars
 if not is_valid_hex(node_name, 8, 8):
-    print('Invalid generated node name: ' + str(node_name))
+    logger.info('Invalid generated node name: ' + str(node_name))
     sys.exit(1)
 
 global_message_id = random.getrandbits(32)
@@ -1719,9 +1774,9 @@ if display_lookup_button:
                 hex_value = int(entry_value, 16)
                 get_name_by_id("short", hex_value)
             except ValueError:
-                print("Invalid hex value")
+                logger.info("Invalid hex value")
         else:
-            print("Entry is empty")
+            logger.info("Entry is empty")
     
     lookup_button = tk.Button(message_log_frame, text="Lookup", command=lookup_action)
     lookup_button.grid(row=17, column=2, padx=5, pady=(1,5), sticky=tk.EW)
