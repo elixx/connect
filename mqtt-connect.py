@@ -76,20 +76,22 @@ class plainFormatter(logging.Formatter):
         message = super().format(record)
         return self.ansi_escape.sub('', message)
 
-
+startTime = str(datetime.now()).replace(" ","_").replace("-","").replace(":","")[:13]
 logger = logging.getLogger("mqtt-connect")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 logger.propagate = False
 logFormat = '%(asctime)s | %(levelname)8s | %(message)s'
+msgLogFormat = '%(asctime)s | %(message)s'
+plainLogFormat = '%(asctime)s | %(message)s'
 # Create stdout handler for logging to the console
 stdout_handler = logging.StreamHandler()
 stdout_handler.setLevel(logging.DEBUG)
 stdout_handler.setFormatter(CustomFormatter(logFormat))
 # Add handlers to the logger
 logger.addHandler(stdout_handler)
-file_handler = logging.FileHandler('logs/messages.log', encoding='utf-8')
+file_handler = logging.FileHandler(f'logs/{startTime}.log', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter(logFormat))
+file_handler.setFormatter(plainFormatter(plainLogFormat))
 logger.addHandler(file_handler)
 
 #################################
@@ -245,7 +247,7 @@ def get_name_by_id(name_type: str, user_id: str) -> str:
 
             if result:
                 if debug:
-                    logger.info("found user in db: " + str(hex_user_id))
+                    logger.debug("found user in db: " + str(hex_user_id))
                 return result[0]
             # If we don't find a user id in the db, ask for an id
             else:
