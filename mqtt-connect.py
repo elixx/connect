@@ -78,20 +78,21 @@ class plainFormatter(logging.Formatter):
 
 startTime = str(datetime.now()).replace(" ","_").replace("-","").replace(":","")[:13]
 logger = logging.getLogger("mqtt-connect")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 logger.propagate = False
 logFormat = '%(asctime)s | %(levelname)8s | %(message)s'
 msgLogFormat = '%(asctime)s | %(message)s'
 plainLogFormat = '%(asctime)s | %(message)s'
-# Create stdout handler for logging to the console
+# Console handler
 stdout_handler = logging.StreamHandler()
 stdout_handler.setLevel(logging.DEBUG)
 stdout_handler.setFormatter(CustomFormatter(logFormat))
-# Add handlers to the logger
-logger.addHandler(stdout_handler)
+# File handler
 file_handler = logging.FileHandler(f'logs/{startTime}.log', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(plainFormatter(plainLogFormat))
+# Add handlers
+logger.addHandler(stdout_handler)
 logger.addHandler(file_handler)
 
 #################################
@@ -99,10 +100,10 @@ logger.addHandler(file_handler)
 debug: bool = True
 auto_reconnect: bool = True
 auto_reconnect_delay: float = 5 # seconds
-logger.info_service_envelope: bool = False
-logger.info_message_packet: bool = False
+logger.service_envelope: bool = False
+logger.message_packet: bool = False
 logger.info_text_message: bool = True
-logger.info_node_info: bool =  True
+logger.info_node_info: bool =  False
 logger.info_telemetry: bool = True
 logger.info_failed_encryption_packet: bool = True
 logger.info_position_report: bool = True
@@ -247,7 +248,8 @@ def get_name_by_id(name_type: str, user_id: str) -> str:
 
             if result:
                 if debug:
-                    logger.debug("found user in db: " + str(hex_user_id))
+                    # logger.debug("found user in db: " + str(hex_user_id))
+                    pass
                 return result[0]
             # If we don't find a user id in the db, ask for an id
             else:
@@ -433,14 +435,14 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
     is_encrypted: bool = False
     try:
         se.ParseFromString(msg.payload)
-        if logger.info_service_envelope:
-            logger.info ("")
-            logger.info ("Service Envelope:")
-            logger.info (se)
+        if logger.service_envelope:
+            logSe = str(se).replace("\n"," ")
+            logger.debug ("Service Envelope:")
+            logger.debug(logSe)
         mp = se.packet
 
     except Exception as e:
-        logger.info(f"*** ServiceEnvelope: {str(e)}")
+        logger.critical(f"*** ServiceEnvelope: {str(e)}")
         return
 
     if len(msg.payload) > max_msg_len:
@@ -452,10 +454,9 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
         decode_encrypted(mp)
         is_encrypted=True
     
-    if logger.info_message_packet:
-        logger.info ("")
-        logger.info ("Message Packet:")
-        logger.info(mp)
+    if logger.message_packet:
+        logger.debug ("Message Packet:")
+        logger.debug(mp)
 
     if mp.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP:
         try:
@@ -463,7 +464,7 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
             process_message(mp, text_payload, is_encrypted)
             # logger.info(f"{text_payload}")
         except Exception as e:
-            logger.info(f"*** TEXT_MESSAGE_APP: {str(e)}")
+            logger.error(f"*** TEXT_MESSAGE_APP: {str(e)}")
 
     elif mp.decoded.portnum == portnums_pb2.NODEINFO_APP:
         info = mesh_pb2.User()
@@ -471,11 +472,10 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
             info.ParseFromString(mp.decoded.payload)
             maybe_store_nodeinfo_in_db(info)
             if logger.info_node_info:
-                logger.info("")
-                logger.info("NodeInfo:")
-                logger.info(info)
+                logger.debug("NodeInfo:")
+                logger.debug(info)
         except Exception as e:
-            logger.info(f"*** NODEINFO_APP: {str(e)}")
+            logger.error(f"*** NODEINFO_APP: {str(e)}")
 
     elif mp.decoded.portnum == portnums_pb2.POSITION_APP:
         pos = mesh_pb2.Position()
@@ -484,14 +484,14 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
             if record_locations:
                 maybe_store_position_in_db(getattr(mp, "from"), pos, getattr(mp, "rx_rssi"))
         except Exception as e:
-            logger.info(f"*** POSITION_APP: {str(e)}")
+            logger.error(f"*** POSITION_APP: {str(e)}")
 
     elif mp.decoded.portnum == portnums_pb2.TELEMETRY_APP:
         env = telemetry_pb2.Telemetry()
         try:
             env.ParseFromString(mp.decoded.payload)
         except Exception as e:
-            logger.info(f"*** TELEMETRY_APP: {str(e)}")
+            logger.error(f"*** TELEMETRY_APP: {str(e)}")
 
         rssi = getattr(mp, "rx_rssi")
 
@@ -583,9 +583,9 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
                     update_gui(message, tag="info")
 
             except AttributeError as e:
-                logger.info(f"Error accessing route: {e}")
+                logger.error(f"Error accessing route: {e}")
             except Exception as ex:
-                logger.info(f"Unexpected error: {ex}")
+                logger.error(f"Unexpected error: {ex}")
 
 
 
@@ -611,10 +611,10 @@ def decode_encrypted(mp):
         mp.decoded.CopyFrom(data)
 
     except Exception as e:
-        if logger.info_message_packet:
-            logger.info(f"failed to decrypt: \n{mp}")
+        if logger.message_packet:
+            logger.error(f"failed to decrypt: \n{mp}")
         if debug:
-            logger.info(f"*** Decryption failed: {str(e)}")
+            logger.error(f"*** Decryption failed: {str(e)}")
 
 
 def process_message(mp, text_payload, is_encrypted):
@@ -725,7 +725,7 @@ def direct_message(destination_id):
             publish_message(destination_id)
         except Exception as e:
             if debug:
-                logger.info(f"Error converting destination_id: {e}")
+                logger.error(f"Error converting destination_id: {e}")
 
 def publish_message(destination_id):
     """?"""
@@ -990,7 +990,7 @@ def maybe_store_nodeinfo_in_db(info):
     """Save nodeinfo in sqlite unless that record is already there."""
 
     if debug:
-        logger.info("node info packet received: Checking for existing entry in DB")
+        logger.debug("node info packet received: Checking for existing entry in DB")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_nodeinfo"
 
@@ -1430,7 +1430,7 @@ def on_nodeinfo_click(event):							# pylint: disable=unused-argument
     """?"""
 
     if debug:
-        logger.info("on_nodeinfo_click")
+        logger.debug("on_nodeinfo_click")
 
     # Get the index of the clicked position
     index = nodeinfo_window.index(tk.CURRENT)
@@ -1449,7 +1449,7 @@ def move_text_up():
 
     text = node_id_entry.get()
     if not is_valid_hex(text, 8, 8):
-        logger.info ("Not valid Hex")
+        logger.warning ("Not valid Hex")
         messagebox.showwarning("Warning", "Not a valid Hex ID")
         return False
     else:
@@ -1466,7 +1466,7 @@ def move_text_down():
     text = '!{}'.format(hex(int(text))[2:])
 
     if not is_valid_hex(text, 8, 8):
-        logger.info ("Not valid Hex")
+        logger.warning ("Not valid Hex")
         messagebox.showwarning("Warning", "Not a valid Hex ID")
         return False
     else:
@@ -1478,7 +1478,7 @@ def move_text_down():
 def mqtt_thread():
     """Function to run the MQTT client loop in a separate thread."""
     if debug:
-        logger.info("MQTT Thread")
+        logger.debug("MQTT Thread")
         if client.is_connected():
             logger.info("client connected")
         else:
@@ -1513,16 +1513,16 @@ def on_exit():
 ### tcl upstream bug warning
 tcl = tk.Tcl()
 if sys.platform.startswith('darwin'):
-    logger.info(f"\n\n**** IF MAC OS SONOMA **** you are using tcl version: {tcl.call('info', 'patchlevel')}")
-    logger.info("If < version 8.6.13, mouse clicks will only be recognized when the mouse is moving")
-    logger.info("unless the window is moved from it's original position.")
-    logger.info("The built in window auto-centering code may help with this\n\n")
+    logger.notice(f"\n\n**** IF MAC OS SONOMA **** you are using tcl version: {tcl.call('info', 'patchlevel')}")
+    logger.notice("If < version 8.6.13, mouse clicks will only be recognized when the mouse is moving")
+    logger.notice("unless the window is moved from it's original position.")
+    logger.notice("The built in window auto-centering code may help with this\n\n")
 
 # Generate 4 random hexadecimal characters to create a unique node name
 random_hex_chars = ''.join(random.choices('0123456789abcdef', k=4))
 node_name = '!abcd' + random_hex_chars
 if not is_valid_hex(node_name, 8, 8):
-    logger.info('Invalid generated node name: ' + str(node_name))
+    logger.error('Invalid generated node name: ' + str(node_name))
     sys.exit(1)
 
 global_message_id = random.getrandbits(32)
@@ -1776,9 +1776,9 @@ if display_lookup_button:
                 hex_value = int(entry_value, 16)
                 get_name_by_id("short", hex_value)
             except ValueError:
-                logger.info("Invalid hex value")
+                logger.error("Invalid hex value")
         else:
-            logger.info("Entry is empty")
+            logger.error("Entry is empty")
     
     lookup_button = tk.Button(message_log_frame, text="Lookup", command=lookup_action)
     lookup_button.grid(row=17, column=2, padx=5, pady=(1,5), sticky=tk.EW)
