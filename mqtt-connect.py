@@ -41,6 +41,15 @@ import paho.mqtt.client as mqtt
 from models import Node
 
 
+def squash(msg):
+    msg = str(msg)
+    msg = msg.replace("\n", " ")
+    nsg = msg.replace("\t", " ")
+    while "  " in msg:
+        msg = msg.replace("  "," ")
+    return(msg)
+
+
 class CustomFormatter(logging.Formatter):
     grey = '\x1b[38;21m'
     white = '\x1b[38;5;231m'
@@ -100,8 +109,8 @@ logger.addHandler(file_handler)
 debug: bool = True
 auto_reconnect: bool = True
 auto_reconnect_delay: float = 5 # seconds
-logger.service_envelope: bool = False
-logger.message_packet: bool = False
+logger.service_envelope: bool = True
+logger.message_packet: bool = True
 logger.info_text_message: bool = True
 logger.info_node_info: bool =  False
 logger.info_telemetry: bool = True
@@ -175,7 +184,7 @@ def set_topic():
     """?"""
 
     if debug:
-        logger.info("set_topic")
+        logger.debug("set_topic")
     global subscribe_topic, publish_topic, node_number, node_name
     node_name = '!' + hex(node_number)[2:]
     subscribe_topic = root_topic + channel + "/#"
@@ -436,9 +445,7 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
     try:
         se.ParseFromString(msg.payload)
         if logger.service_envelope:
-            logSe = str(se).replace("\n"," ")
-            logger.debug ("Service Envelope:")
-            logger.debug(logSe)
+            logger.debug ("Service Envelope:" + squash(se))
         mp = se.packet
 
     except Exception as e:
@@ -455,8 +462,7 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
         is_encrypted=True
     
     if logger.message_packet:
-        logger.debug ("Message Packet:")
-        logger.debug(mp)
+        logger.debug ("Message Packet " + squash(mp))
 
     if mp.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP:
         try:
@@ -776,7 +782,7 @@ def send_node_info(destination_id, want_response):
     global node_number
 
     if debug:
-        logger.info("send_node_info")
+        logger.debug("send_node_info")
 
     if not client.is_connected():
         message =  format_time(current_time()) + " >>> Connect to a broker before sending nodeinfo"
@@ -903,8 +909,6 @@ def generate_mesh_packet(destination_id, encoded_message):
             logger.info("key is none")
     else:
         mesh_packet.encrypted = encrypt_message(channel, key, mesh_packet, encoded_message)
-        if debug:
-            logger.info("key present")
 
     service_envelope = mqtt_pb2.ServiceEnvelope()
     service_envelope.packet.CopyFrom(mesh_packet)
@@ -920,8 +924,6 @@ def generate_mesh_packet(destination_id, encoded_message):
 
 def encrypt_message(channel, key, mesh_packet, encoded_message):
     """Encrypt a message."""
-    if debug:
-        logger.info("encrypt_message")
 
     if key == "AQ==":
         key = "1PG7OiApB1nwvP+rz05pAQ=="
@@ -989,9 +991,6 @@ def setup_db():
 def maybe_store_nodeinfo_in_db(info):
     """Save nodeinfo in sqlite unless that record is already there."""
 
-    if debug:
-        logger.debug("node info packet received: Checking for existing entry in DB")
-
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_nodeinfo"
 
     try:
@@ -1039,7 +1038,7 @@ def maybe_store_nodeinfo_in_db(info):
                     update_gui(message, text_widget=nodeinfo_window)
 
     except sqlite3.Error as e:
-        logger.info(f"SQLite error in maybe_store_nodeinfo_in_db: {e}")
+        logger.error(f"SQLite error in maybe_store_nodeinfo_in_db: {e}")
 
     finally:
         db_connection.close()
