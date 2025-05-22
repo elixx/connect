@@ -355,8 +355,6 @@ def save_preset():
 def load_preset():
     """Function to load the selected preset."""
 
-    if debug:
-        logger.info("load_preset")
     selected_preset_name = preset_var.get()
 
     if selected_preset_name in presets:
@@ -422,8 +420,6 @@ def save_presets_to_file():
 def load_presets_from_file():
     """Load presets from a file."""
 
-    if debug:
-        logger.info("load_presets_from_file")
     try:
         with open(presets_file_path, "r") as file:
             loaded_presets = json.load(file)
@@ -1132,9 +1128,6 @@ def insert_message_to_db(time, sender_short_name, text_payload, message_id, is_e
 def load_message_history_from_db():
     """Load previously stored messages from sqlite and display them."""
 
-    if debug:
-        logger.info("load_message_history_from_db")
-
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
     try:
@@ -1167,9 +1160,6 @@ def load_message_history_from_db():
 
 def erase_nodedb():
     """Erase all stored nodeinfo in sqlite and on display in the gui."""
-
-    if debug:
-        logger.info("erase_nodedb")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_nodeinfo"
 
@@ -1416,9 +1406,6 @@ def on_nodeinfo_leave(event):							# pylint: disable=unused-argument
 
 def on_nodeinfo_click(event):							# pylint: disable=unused-argument
     """?"""
-
-    if debug:
-        logger.debug("on_nodeinfo_click")
 
     # Get the index of the clicked position
     index = nodeinfo_window.index(tk.CURRENT)
