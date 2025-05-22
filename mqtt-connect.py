@@ -626,8 +626,6 @@ def decode_encrypted(mp):
 def process_message(mp, text_payload, is_encrypted):
     """Process a single meshtastic text message."""
 
-    if debug:
-        logger.info("process_message")
     if not message_exists(mp):
         from_node = getattr(mp, "from")
         to_node = getattr(mp, "to")
@@ -689,14 +687,12 @@ def process_message(mp, text_payload, is_encrypted):
             logger.info(text)
     else:
         if debug:
-            logger.info("duplicate message ignored")
+            logger.warning("duplicate message ignored")
 
 
 def message_exists(mp) -> bool:
     """Check for message id in db, ignore duplicates."""
 
-    if debug:
-        logger.info("message_exists")
     try:
         table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
@@ -828,8 +824,6 @@ def send_position(destination_id) -> None:
 
     global node_number
 
-    if debug:
-        logger.info("send_Position")
 
     if not client.is_connected():
         message =  format_time(current_time()) + " >>> Connect to a broker before sending position"
@@ -1115,9 +1109,6 @@ def maybe_store_position_in_db(node_id, position, rssi=None):
 
 def insert_message_to_db(time, sender_short_name, text_payload, message_id, is_encrypted):
     """Save a meshtastic message to sqlite storage."""
-
-    if debug:
-        logger.info("insert_message_to_db")
 
     table_name = sanitize_string(mqtt_broker) + "_" + sanitize_string(root_topic) + sanitize_string(channel) + "_messages"
 
@@ -1407,8 +1398,6 @@ def update_gui(text_payload, tag=None, text_widget=None):
     """?"""
 
     text_widget = text_widget or message_history
-    if debug:
-        logger.info(f"updating GUI with: {text_payload}")
     text_widget.config(state=tk.NORMAL)
     text_widget.insert(tk.END, f"{text_payload}\n", tag)
     text_widget.config(state=tk.DISABLED)
