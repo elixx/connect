@@ -458,7 +458,7 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
         is_encrypted=True
     
     if logger.message_packet:
-        logger.debug ("Message Packet " + squash(mp))
+        logger.info("Message Packet " + squash(mp))
 
     if mp.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP:
         try:
