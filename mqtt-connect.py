@@ -524,8 +524,8 @@ def on_message(client, userdata, msg):						# pylint: disable=unused-argument
 
         if logger.info_telemetry:
 
-            device_metrics_string = "From: " + get_name_by_id("short", getattr(mp, "from")) + ", "
-            environment_metrics_string = "From: " + get_name_by_id("short", getattr(mp, "from")) + ", "
+            device_metrics_string = "Device Metrics from: " + get_name_by_id("short", getattr(mp, "from")) + ", "
+            environment_metrics_string = "Environ Metrics from: " + get_name_by_id("short", getattr(mp, "from")) + ", "
 
             # Only use metrics that are non-zero
             has_device_metrics = True
@@ -1042,7 +1042,7 @@ def maybe_store_position_in_db(node_id, position, rssi=None):
 
         rssi_string = ", RSSI: " + str(rssi) if rssi else ""
         if logger.info_position_report:
-            logger.info("From: " + get_name_by_id("short", node_id) +
+            logger.info("Position Packet from: " + get_name_by_id("short", node_id) +
                 ", lat: " + str(round(position.latitude_i * 1e-7, 7)) +
                 ", lon: " + str(round(position.longitude_i * 1e-7, 7)) +
                 ", alt: " + str(position.altitude) +
